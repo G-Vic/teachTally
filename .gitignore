@@ -1,0 +1,7 @@
+.gradle/
+build/
+app/build/
+android-sdk/
+commandlinetools-win.zip
+local.properties
+*.apk
