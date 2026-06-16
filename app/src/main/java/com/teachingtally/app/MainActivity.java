@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private String statsStart;
     private String statsEnd;
     private String statsLabel = "本月";
+    private String detailCalendarMonth;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -118,12 +119,18 @@ public class MainActivity extends Activity {
         root.addView(search, matchWrap());
 
         Stats summary = db.stats();
-        LinearLayout stats = row();
-        stats.setPadding(0, dp(10), 0, dp(8));
-        stats.addView(chip("学生 " + summary.students));
-        stats.addView(chip("剩余 " + summary.remaining + " 节"));
-        stats.addView(chip("本月 " + summary.monthLessons + " 节"));
-        root.addView(stats);
+        LinearLayout statsTop = row();
+        statsTop.setPadding(0, dp(10), 0, dp(2));
+        statsTop.addView(chip("学生 " + summary.students));
+        statsTop.addView(chip("总课时 " + summary.totalLessons + " 节"));
+        statsTop.addView(chip("已上 " + summary.usedLessons + " 节"));
+        root.addView(statsTop);
+
+        LinearLayout statsBottom = row();
+        statsBottom.setPadding(0, 0, 0, dp(8));
+        statsBottom.addView(chip("剩余 " + summary.remaining + " 节"));
+        statsBottom.addView(chip("本月 " + summary.monthLessons + " 节"));
+        root.addView(statsBottom);
 
         Button export = secondaryButton("导出 CSV 备份");
         export.setOnClickListener(v -> exportCsv());
@@ -180,6 +187,13 @@ public class MainActivity extends Activity {
         top.addView(remain);
         card.addView(top);
 
+        LinearLayout metrics = row();
+        metrics.setPadding(0, dp(10), 0, dp(4));
+        metrics.addView(metric("总课时", s.totalLessons + " 节", INK), weightParams());
+        metrics.addView(metric("已上", s.usedLessons + " 节", BLUE), weightParams());
+        metrics.addView(metric("剩余", s.remaining() + " 节", s.remaining() <= 3 ? DANGER : BLUE), weightParams());
+        card.addView(metrics);
+
         LinearLayout bottom = row();
         bottom.setPadding(0, dp(8), 0, 0);
         Button detail = secondaryButton("详情");
@@ -224,9 +238,70 @@ public class MainActivity extends Activity {
             if (returnHome) showHome(); else showDetail(studentId);
             return;
         }
-        db.addLesson(studentId, today());
-        Toast.makeText(this, latest.name + " 已记录 1 节", Toast.LENGTH_SHORT).show();
-        if (returnHome) showHome(); else showDetail(studentId);
+        showLessonForm(latest, returnHome);
+    }
+
+    private void showLessonForm(Student student, boolean returnHome) {
+        LinearLayout form = column();
+        int pad = dp(10);
+        form.setPadding(pad, pad, pad, 0);
+
+        String[] selectedDate = new String[]{today()};
+        Button date = dateSelectButton("上课日期 " + selectedDate[0]);
+        date.setOnClickListener(v -> pickDate(selectedDate[0], selected -> {
+            selectedDate[0] = selected;
+            date.setText("上课日期 " + selected);
+        }));
+        form.addView(date, matchWrap());
+
+        EditText count = compactInput("添加节数");
+        count.setInputType(InputType.TYPE_CLASS_NUMBER);
+        count.setText("1");
+        count.setSelectAllOnFocus(true);
+        form.addView(count, matchWrap());
+
+        TextView remain = text("剩余可添加 " + student.remaining() + " 节", 12, MUTED, false);
+        remain.setPadding(dp(2), dp(4), dp(2), 0);
+        form.addView(remain);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("添加上课记录")
+                .setView(form)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", null)
+                .show();
+
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            Student latest = db.student(student.id);
+            if (latest == null) {
+                dialog.dismiss();
+                if (returnHome) showHome(); else showDetail(student.id);
+                return;
+            }
+            int lessonCount;
+            try {
+                lessonCount = Integer.parseInt(count.getText().toString().trim());
+            } catch (NumberFormatException e) {
+                Toast.makeText(this, "节数格式不正确", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (lessonCount <= 0) {
+                Toast.makeText(this, "节数必须大于 0", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (selectedDate[0].compareTo(today()) > 0) {
+                Toast.makeText(this, "上课日期不能晚于今天", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (lessonCount > latest.remaining()) {
+                Toast.makeText(this, "最多还能添加 " + latest.remaining() + " 节", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            db.addLessons(student.id, selectedDate[0], lessonCount);
+            Toast.makeText(this, latest.name + " 已添加 " + lessonCount + " 节", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            if (returnHome) showHome(); else showDetail(student.id);
+        });
     }
 
     private void showStudentForm(Student editing) {
@@ -242,17 +317,22 @@ public class MainActivity extends Activity {
         price.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         EditText total = input("总课时");
         total.setInputType(InputType.TYPE_CLASS_NUMBER);
-        EditText purchaseDate = input("购买日期，例如 2026-06-15");
+        String[] purchaseDateValue = new String[]{editing == null ? today() : safe(editing.purchaseDate)};
+        if (purchaseDateValue[0].isEmpty() || !isValidDate(purchaseDateValue[0])) {
+            purchaseDateValue[0] = today();
+        }
+        Button purchaseDate = dateSelectButton("购买日期 " + purchaseDateValue[0]);
+        purchaseDate.setOnClickListener(v -> pickDate(purchaseDateValue[0], selected -> {
+            purchaseDateValue[0] = selected;
+            purchaseDate.setText("购买日期 " + selected);
+        }));
         EditText note = input("备注");
 
         if (editing != null) {
             name.setText(editing.name);
             price.setText(trimMoney(editing.price));
             total.setText(String.valueOf(editing.totalLessons));
-            purchaseDate.setText(editing.purchaseDate);
             note.setText(editing.note);
-        } else {
-            purchaseDate.setText(today());
         }
 
         root.addView(name, matchWrap());
@@ -262,11 +342,11 @@ public class MainActivity extends Activity {
         root.addView(note, matchWrap());
 
         Button save = actionButton("保存");
-        save.setOnClickListener(v -> saveStudent(editing, name, price, total, purchaseDate, note));
+        save.setOnClickListener(v -> saveStudent(editing, name, price, total, purchaseDateValue[0], note));
         root.addView(save, matchWrap());
     }
 
-    private void saveStudent(Student editing, EditText name, EditText price, EditText total, EditText purchaseDate, EditText note) {
+    private void saveStudent(Student editing, EditText name, EditText price, EditText total, String purchaseDate, EditText note) {
         String n = name.getText().toString().trim();
         String p = price.getText().toString().trim();
         String t = total.getText().toString().trim();
@@ -292,10 +372,10 @@ public class MainActivity extends Activity {
             return;
         }
         if (editing == null) {
-            db.addStudent(n, amount, lessons, purchaseDate.getText().toString().trim(), note.getText().toString().trim());
+            db.addStudent(n, amount, lessons, purchaseDate, note.getText().toString().trim());
             showHome();
         } else {
-            db.updateStudent(editing.id, n, amount, lessons, purchaseDate.getText().toString().trim(), note.getText().toString().trim());
+            db.updateStudent(editing.id, n, amount, lessons, purchaseDate, note.getText().toString().trim());
             showDetail(editing.id);
         }
     }
@@ -305,6 +385,9 @@ public class MainActivity extends Activity {
         if (s == null) {
             showHome();
             return;
+        }
+        if (currentStudent == null || currentStudent.id != id || detailCalendarMonth == null) {
+            detailCalendarMonth = monthStart(s.lastDate == null ? today() : s.lastDate);
         }
         screen = "detail";
         currentStudent = s;
@@ -335,7 +418,9 @@ public class MainActivity extends Activity {
         actions.addView(delete, weightParams());
         root.addView(actions);
 
-        TextView logTitle = text("上课记录", 15, INK, true);
+        root.addView(lessonCalendar(s));
+
+        TextView logTitle = text("上课明细", 15, INK, true);
         logTitle.setPadding(0, dp(14), 0, dp(6));
         root.addView(logTitle);
 
@@ -350,19 +435,140 @@ public class MainActivity extends Activity {
             if (!grouped.containsKey(lessonItem.date)) grouped.put(lessonItem.date, new ArrayList<>());
             grouped.get(lessonItem.date).add(lessonItem);
         }
+        LinearLayout list = listContainer();
+        int index = 0;
         for (Map.Entry<String, List<Lesson>> entry : grouped.entrySet()) {
-            LinearLayout day = card();
-            LinearLayout line = row();
-            line.addView(text(entry.getKey(), 14, INK, true), weightParams());
-            line.addView(text(entry.getValue().size() + " 节", 13, BLUE, true));
-            day.addView(line);
-            for (Lesson lessonItem : entry.getValue()) {
-                Button del = secondaryButton("删除 1 节");
-                del.setOnClickListener(v -> confirmDeleteLesson(lessonItem.id, s.id));
-                day.addView(del, matchWrap());
+            list.addView(lessonDateRow(s.id, entry.getKey(), entry.getValue()));
+            if (index < grouped.size() - 1) {
+                list.addView(divider());
             }
-            root.addView(day);
+            index++;
         }
+        root.addView(list);
+    }
+
+    private View lessonDateRow(long studentId, String date, List<Lesson> lessons) {
+        LinearLayout line = row();
+        line.setPadding(dp(14), dp(10), dp(14), dp(10));
+
+        LinearLayout info = column();
+        info.addView(text(date, 14, INK, true));
+        info.addView(text("共 " + lessons.size() + " 节", 12, MUTED, false));
+        line.addView(info, weightParams());
+
+        Button view = secondaryButton("查看");
+        view.setOnClickListener(v -> showLessonDayDialog(studentId, date));
+        line.addView(view);
+
+        Button delete = dangerButton("删 1 节");
+        delete.setOnClickListener(v -> confirmDeleteLesson(lessons.get(0).id, studentId));
+        line.addView(delete);
+        return line;
+    }
+
+    private View lessonCalendar(Student student) {
+        LinearLayout calendar = card();
+        LinearLayout header = row();
+
+        Button prev = iconButton("<");
+        prev.setOnClickListener(v -> {
+            detailCalendarMonth = shiftMonth(detailCalendarMonth, -1);
+            showDetail(student.id);
+        });
+        header.addView(prev);
+
+        TextView title = text(monthTitle(detailCalendarMonth), 15, INK, true);
+        title.setGravity(Gravity.CENTER);
+        header.addView(title, weightParams());
+
+        Button next = iconButton(">");
+        next.setOnClickListener(v -> {
+            detailCalendarMonth = shiftMonth(detailCalendarMonth, 1);
+            showDetail(student.id);
+        });
+        header.addView(next);
+        calendar.addView(header);
+
+        LinearLayout weekdays = row();
+        weekdays.setPadding(0, dp(8), 0, dp(2));
+        String[] labels = new String[]{"一", "二", "三", "四", "五", "六", "日"};
+        for (String label : labels) {
+            TextView day = text(label, 12, MUTED, true);
+            day.setGravity(Gravity.CENTER);
+            weekdays.addView(day, calendarCellParams());
+        }
+        calendar.addView(weekdays);
+
+        Calendar month = calendarFromDate(detailCalendarMonth);
+        month.set(Calendar.DAY_OF_MONTH, 1);
+        String start = dateFormat.format(month.getTime());
+        int firstOffset = mondayOffset(month);
+        int daysInMonth = month.getActualMaximum(Calendar.DAY_OF_MONTH);
+        Calendar end = (Calendar) month.clone();
+        end.set(Calendar.DAY_OF_MONTH, daysInMonth);
+        Map<String, Integer> counts = db.lessonCounts(student.id, start, dateFormat.format(end.getTime()));
+
+        int dayNumber = 1;
+        int totalCells = firstOffset + daysInMonth;
+        int rows = (totalCells + 6) / 7;
+        for (int r = 0; r < rows; r++) {
+            LinearLayout week = row();
+            week.setGravity(Gravity.CENTER);
+            for (int c = 0; c < 7; c++) {
+                int cellIndex = r * 7 + c;
+                if (cellIndex < firstOffset || dayNumber > daysInMonth) {
+                    week.addView(calendarBlankCell(), calendarCellParams());
+                    continue;
+                }
+
+                Calendar date = (Calendar) month.clone();
+                date.set(Calendar.DAY_OF_MONTH, dayNumber);
+                String dateValue = dateFormat.format(date.getTime());
+                int count = counts.containsKey(dateValue) ? counts.get(dateValue) : 0;
+                TextView cell = calendarDayCell(dayNumber, count);
+                if (count > 0) {
+                    cell.setOnClickListener(v -> showLessonDayDialog(student.id, dateValue));
+                }
+                week.addView(cell, calendarCellParams());
+                dayNumber++;
+            }
+            calendar.addView(week);
+        }
+        return calendar;
+    }
+
+    private void showLessonDayDialog(long studentId, String date) {
+        List<Lesson> lessons = db.lessonsOn(studentId, date);
+        if (lessons.isEmpty()) {
+            Toast.makeText(this, "当天暂无记录", Toast.LENGTH_SHORT).show();
+            showDetail(studentId);
+            return;
+        }
+
+        LinearLayout list = column();
+        int pad = dp(10);
+        list.setPadding(pad, pad, pad, 0);
+
+        final AlertDialog[] dialogRef = new AlertDialog[1];
+        for (int i = 0; i < lessons.size(); i++) {
+            Lesson lesson = lessons.get(i);
+            LinearLayout line = row();
+            line.setPadding(0, dp(4), 0, dp(4));
+            line.addView(text("第 " + (i + 1) + " 节", 14, INK, true), weightParams());
+            Button delete = dangerButton("删除");
+            delete.setOnClickListener(v -> {
+                if (dialogRef[0] != null) dialogRef[0].dismiss();
+                confirmDeleteLesson(lesson.id, studentId);
+            });
+            line.addView(delete);
+            list.addView(line, matchWrap());
+        }
+
+        dialogRef[0] = new AlertDialog.Builder(this)
+                .setTitle(date + " 共 " + lessons.size() + " 节")
+                .setView(list)
+                .setPositiveButton("关闭", null)
+                .show();
     }
 
     private void confirmDeleteStudent(Student student) {
@@ -595,6 +801,34 @@ public class MainActivity extends Activity {
         return view;
     }
 
+    private LinearLayout metric(String label, String value, int valueColor) {
+        LinearLayout view = column();
+        TextView labelView = text(label, 11, MUTED, false);
+        labelView.setGravity(Gravity.CENTER);
+        TextView valueView = text(value, 15, valueColor, true);
+        valueView.setGravity(Gravity.CENTER);
+        view.addView(labelView);
+        view.addView(valueView);
+        return view;
+    }
+
+    private TextView calendarDayCell(int day, int lessons) {
+        String value = lessons > 0 ? day + "\n" + lessons + "节" : String.valueOf(day);
+        TextView view = text(value, lessons > 0 ? 11 : 13, lessons > 0 ? BLUE : INK, lessons > 0);
+        view.setGravity(Gravity.CENTER);
+        view.setMinHeight(dp(46));
+        view.setIncludeFontPadding(false);
+        view.setPadding(dp(2), dp(4), dp(2), dp(4));
+        view.setBackground(rounded(lessons > 0 ? BLUE_SOFT : CARD, dp(10), lessons > 0 ? BLUE : LINE, 1));
+        return view;
+    }
+
+    private TextView calendarBlankCell() {
+        TextView view = text("", 12, MUTED, false);
+        view.setMinHeight(dp(46));
+        return view;
+    }
+
     private LinearLayout card() {
         LinearLayout view = column();
         view.setPadding(dp(14), dp(13), dp(14), dp(13));
@@ -767,6 +1001,12 @@ public class MainActivity extends Activity {
         return params;
     }
 
+    private LinearLayout.LayoutParams calendarCellParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1);
+        params.setMargins(dp(2), dp(2), dp(2), dp(2));
+        return params;
+    }
+
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
@@ -784,6 +1024,38 @@ public class MainActivity extends Activity {
 
     private String today() {
         return dateFormat.format(new Date());
+    }
+
+    private Calendar calendarFromDate(String value) {
+        Calendar c = Calendar.getInstance(Locale.CHINA);
+        try {
+            Date parsed = dateFormat.parse(value);
+            if (parsed != null) c.setTime(parsed);
+        } catch (ParseException ignored) {
+        }
+        return c;
+    }
+
+    private String monthStart(String date) {
+        Calendar c = calendarFromDate(date);
+        c.set(Calendar.DAY_OF_MONTH, 1);
+        return dateFormat.format(c.getTime());
+    }
+
+    private String shiftMonth(String monthStart, int amount) {
+        Calendar c = calendarFromDate(monthStart);
+        c.set(Calendar.DAY_OF_MONTH, 1);
+        c.add(Calendar.MONTH, amount);
+        return dateFormat.format(c.getTime());
+    }
+
+    private String monthTitle(String monthStart) {
+        Calendar c = calendarFromDate(monthStart);
+        return c.get(Calendar.YEAR) + "年" + (c.get(Calendar.MONTH) + 1) + "月";
+    }
+
+    private int mondayOffset(Calendar date) {
+        return (date.get(Calendar.DAY_OF_WEEK) + 5) % 7;
     }
 
     private boolean isValidDate(String value) {
@@ -872,6 +1144,8 @@ public class MainActivity extends Activity {
 
     static class Stats {
         int students;
+        int totalLessons;
+        int usedLessons;
         int remaining;
         int monthLessons;
     }
@@ -955,14 +1229,24 @@ public class MainActivity extends Activity {
             return values;
         }
 
-        void addLesson(long studentId, String date) {
+        void addLessons(long studentId, String date, int count) {
             Student s = student(studentId);
-            if (s == null || s.remaining() <= 0) return;
-            ContentValues values = new ContentValues();
-            values.put("student_id", studentId);
-            values.put("lesson_date", date);
-            values.put("created_at", System.currentTimeMillis());
-            getWritableDatabase().insert("lessons", null, values);
+            if (s == null || count <= 0 || s.remaining() < count) return;
+            SQLiteDatabase db = getWritableDatabase();
+            db.beginTransaction();
+            try {
+                long now = System.currentTimeMillis();
+                for (int i = 0; i < count; i++) {
+                    ContentValues values = new ContentValues();
+                    values.put("student_id", studentId);
+                    values.put("lesson_date", date);
+                    values.put("created_at", now + i);
+                    db.insert("lessons", null, values);
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
         }
 
         void deleteLesson(long id) {
@@ -1005,6 +1289,34 @@ public class MainActivity extends Activity {
             return rows;
         }
 
+        List<Lesson> lessonsOn(long studentId, String date) {
+            List<Lesson> rows = new ArrayList<>();
+            try (Cursor c = getReadableDatabase().rawQuery(
+                    "SELECT id,lesson_date FROM lessons WHERE student_id=? AND lesson_date=? ORDER BY created_at DESC",
+                    new String[]{String.valueOf(studentId), date})) {
+                while (c.moveToNext()) {
+                    Lesson row = new Lesson();
+                    row.id = c.getLong(0);
+                    row.date = c.getString(1);
+                    rows.add(row);
+                }
+            }
+            return rows;
+        }
+
+        Map<String, Integer> lessonCounts(long studentId, String start, String end) {
+            Map<String, Integer> rows = new LinkedHashMap<>();
+            try (Cursor c = getReadableDatabase().rawQuery(
+                    "SELECT lesson_date, COUNT(*) FROM lessons " +
+                            "WHERE student_id=? AND lesson_date BETWEEN ? AND ? GROUP BY lesson_date",
+                    new String[]{String.valueOf(studentId), start, end})) {
+                while (c.moveToNext()) {
+                    rows.put(c.getString(0), c.getInt(1));
+                }
+            }
+            return rows;
+        }
+
         void moveStudent(long id, int direction) {
             List<Student> all = students("");
             int index = -1;
@@ -1028,7 +1340,11 @@ public class MainActivity extends Activity {
             Stats s = new Stats();
             List<Student> students = students("");
             s.students = students.size();
-            for (Student student : students) s.remaining += Math.max(student.remaining(), 0);
+            for (Student student : students) {
+                s.totalLessons += student.totalLessons;
+                s.usedLessons += student.usedLessons;
+                s.remaining += Math.max(student.remaining(), 0);
+            }
             String month = new SimpleDateFormat("yyyy-MM", Locale.CHINA).format(new Date()) + "%";
             try (Cursor c = getReadableDatabase().rawQuery(
                     "SELECT COUNT(*) FROM lessons WHERE lesson_date LIKE ?", new String[]{month})) {
