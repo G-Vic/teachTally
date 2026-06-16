@@ -41,16 +41,19 @@ import java.util.Map;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_CSV = 1001;
-    private static final int BLUE = Color.rgb(25, 103, 210);
-    private static final int BLUE_SOFT = Color.rgb(232, 240, 254);
-    private static final int SURFACE = Color.rgb(246, 248, 252);
+    private static final int BLUE = Color.rgb(30, 96, 175);
+    private static final int BLUE_SOFT = Color.rgb(232, 241, 255);
+    private static final int TEAL = Color.rgb(22, 128, 112);
+    private static final int TEAL_SOFT = Color.rgb(226, 247, 243);
+    private static final int SURFACE = Color.rgb(247, 249, 252);
     private static final int CARD = Color.WHITE;
-    private static final int LINE = Color.rgb(224, 226, 230);
-    private static final int INK = Color.rgb(32, 33, 36);
-    private static final int MUTED = Color.rgb(95, 99, 104);
+    private static final int LINE = Color.rgb(221, 226, 234);
+    private static final int INK = Color.rgb(31, 41, 55);
+    private static final int MUTED = Color.rgb(107, 114, 128);
     private static final int DANGER = Color.rgb(217, 48, 37);
     private static final int DANGER_SOFT = Color.rgb(252, 232, 230);
     private static final int DISABLED = Color.rgb(189, 193, 198);
+    private static final int CORNER_RADIUS_DP = 10;
 
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.CHINA);
 
@@ -63,6 +66,7 @@ public class MainActivity extends Activity {
     private String statsStart;
     private String statsEnd;
     private String statsLabel = "本月";
+    private String statsCalendarMonth;
     private String detailCalendarMonth;
 
     @Override
@@ -72,6 +76,7 @@ public class MainActivity extends Activity {
         DateRange month = monthRange();
         statsStart = month.start;
         statsEnd = month.end;
+        statsCalendarMonth = month.start;
         showHome();
     }
 
@@ -83,7 +88,7 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(24));
+        root.setPadding(dp(16), dp(16), dp(16), dp(24));
         root.setBackgroundColor(SURFACE);
         scrollView.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -98,7 +103,7 @@ public class MainActivity extends Activity {
 
         LinearLayout header = row();
         header.addView(text("课时统计", 24, INK, true), weightParams());
-        Button add = actionButton("添加");
+        Button add = actionButton("添加学生");
         add.setOnClickListener(v -> showStudentForm(null));
         header.addView(add);
         root.addView(header);
@@ -119,21 +124,10 @@ public class MainActivity extends Activity {
         root.addView(search, matchWrap());
 
         Stats summary = db.stats();
-        LinearLayout statsTop = row();
-        statsTop.setPadding(0, dp(10), 0, dp(2));
-        statsTop.addView(chip("学生 " + summary.students));
-        statsTop.addView(chip("总课时 " + summary.totalLessons + " 节"));
-        statsTop.addView(chip("已上 " + summary.usedLessons + " 节"));
-        root.addView(statsTop);
-
-        LinearLayout statsBottom = row();
-        statsBottom.setPadding(0, 0, 0, dp(8));
-        statsBottom.addView(chip("剩余 " + summary.remaining + " 节"));
-        statsBottom.addView(chip("本月 " + summary.monthLessons + " 节"));
-        root.addView(statsBottom);
+        root.addView(homeSummary(summary));
 
         Button export = secondaryButton("导出 CSV 备份");
-        export.setOnClickListener(v -> exportCsv());
+        export.setOnClickListener(v -> confirmExportCsv());
         root.addView(export, matchWrap());
 
         LinearLayout list = new LinearLayout(this);
@@ -146,7 +140,7 @@ public class MainActivity extends Activity {
     private LinearLayout navBar(boolean homeSelected) {
         LinearLayout nav = row();
         nav.setPadding(dp(4), dp(4), dp(4), dp(4));
-        nav.setBackground(rounded(CARD, dp(24), LINE, 1));
+        nav.setBackground(rounded(CARD, cornerRadius(), LINE, 1));
         Button students = homeSelected ? actionButton("学生") : secondaryButton("学生");
         students.setOnClickListener(v -> showHome());
         nav.addView(students, weightParams());
@@ -195,7 +189,7 @@ public class MainActivity extends Activity {
         card.addView(metrics);
 
         LinearLayout bottom = row();
-        bottom.setPadding(0, dp(8), 0, 0);
+        bottom.setPadding(0, dp(10), 0, 0);
         Button detail = secondaryButton("详情");
         detail.setOnClickListener(v -> showDetail(s.id));
         bottom.addView(detail, weightParams());
@@ -204,23 +198,26 @@ public class MainActivity extends Activity {
         lesson.setEnabled(s.remaining() > 0);
         lesson.setOnClickListener(v -> recordLesson(s.id, true));
         bottom.addView(lesson, weightParams());
+        card.addView(bottom);
 
-        Button up = iconButton("↑");
+        LinearLayout sort = row();
+        sort.setPadding(0, dp(4), 0, 0);
+        Button up = secondaryButton("上移");
         up.setEnabled(index > 0);
         up.setOnClickListener(v -> {
             db.moveStudent(s.id, -1);
             renderStudentList();
         });
-        bottom.addView(up);
+        sort.addView(up, weightParams());
 
-        Button down = iconButton("↓");
+        Button down = secondaryButton("下移");
         down.setEnabled(index < count - 1);
         down.setOnClickListener(v -> {
             db.moveStudent(s.id, 1);
             renderStudentList();
         });
-        bottom.addView(down);
-        card.addView(bottom);
+        sort.addView(down, weightParams());
+        card.addView(sort);
 
         if (s.remaining() <= 3) {
             TextView alert = text(s.remaining() <= 0 ? "课时已用完，不能继续计数" : "剩余课时不足", 12, DANGER, true);
@@ -404,12 +401,16 @@ public class MainActivity extends Activity {
         if (!safe(s.note).isEmpty()) summary.addView(infoLine("备注", s.note));
         root.addView(summary);
 
-        LinearLayout actions = row();
-        actions.setPadding(0, dp(4), 0, dp(4));
+        LinearLayout primaryActions = row();
+        primaryActions.setPadding(0, dp(4), 0, 0);
         Button lesson = s.remaining() > 0 ? actionButton("记一节") : disabledButton("课时已满");
         lesson.setEnabled(s.remaining() > 0);
         lesson.setOnClickListener(v -> recordLesson(s.id, false));
-        actions.addView(lesson, weightParams());
+        primaryActions.addView(lesson, weightParams());
+        root.addView(primaryActions);
+
+        LinearLayout actions = row();
+        actions.setPadding(0, dp(2), 0, dp(6));
         Button edit = secondaryButton("编辑");
         edit.setOnClickListener(v -> showStudentForm(s));
         actions.addView(edit, weightParams());
@@ -448,21 +449,27 @@ public class MainActivity extends Activity {
     }
 
     private View lessonDateRow(long studentId, String date, List<Lesson> lessons) {
-        LinearLayout line = row();
-        line.setPadding(dp(14), dp(10), dp(14), dp(10));
+        LinearLayout line = column();
+        line.setPadding(dp(14), dp(11), dp(14), dp(11));
 
+        LinearLayout top = row();
         LinearLayout info = column();
         info.addView(text(date, 14, INK, true));
         info.addView(text("共 " + lessons.size() + " 节", 12, MUTED, false));
-        line.addView(info, weightParams());
+        top.addView(info, weightParams());
+        top.addView(statusPill(lessons.size() + " 节", BLUE, BLUE_SOFT));
+        line.addView(top);
 
+        LinearLayout actions = row();
+        actions.setPadding(0, dp(8), 0, 0);
         Button view = secondaryButton("查看");
         view.setOnClickListener(v -> showLessonDayDialog(studentId, date));
-        line.addView(view);
+        actions.addView(view, weightParams());
 
-        Button delete = dangerButton("删 1 节");
+        Button delete = dangerButton("删除 1 节");
         delete.setOnClickListener(v -> confirmDeleteLesson(lessons.get(0).id, studentId));
-        line.addView(delete);
+        actions.addView(delete, weightParams());
+        line.addView(actions);
         return line;
     }
 
@@ -606,12 +613,16 @@ public class MainActivity extends Activity {
         root.addView(navBar(false));
 
         LinearLayout quick1 = row();
-        quick1.setPadding(0, dp(4), 0, dp(4));
-        quick1.addView(rangeButton("今天", todayRange(), "今天"));
-        quick1.addView(rangeButton("本周", weekRange(), "本周"));
-        quick1.addView(rangeButton("本月", monthRange(), "本月"));
-        quick1.addView(rangeButton("本年", yearRange(), "本年"));
+        quick1.setPadding(0, dp(4), 0, dp(1));
+        quick1.addView(rangeButton("今天", todayRange(), "今天"), weightParams());
+        quick1.addView(rangeButton("本周", weekRange(), "本周"), weightParams());
         root.addView(quick1);
+
+        LinearLayout quick2 = row();
+        quick2.setPadding(0, dp(1), 0, dp(4));
+        quick2.addView(rangeButton("本月", monthRange(), "本月"), weightParams());
+        quick2.addView(rangeButton("本年", yearRange(), "本年"), weightParams());
+        root.addView(quick2);
 
         LinearLayout custom = row();
         custom.setPadding(0, dp(4), 0, dp(2));
@@ -619,6 +630,7 @@ public class MainActivity extends Activity {
         start.setOnClickListener(v -> pickDate(statsStart, selected -> {
             statsStart = selected;
             statsLabel = "自定义";
+            statsCalendarMonth = monthStart(selected);
             showStats();
         }));
         Button end = dateSelectButton("结束 " + statsEnd);
@@ -638,6 +650,7 @@ public class MainActivity extends Activity {
                 return;
             }
             statsLabel = "自定义";
+            statsCalendarMonth = monthStart(statsStart);
             showStats();
         });
         root.addView(query, matchWrap());
@@ -648,6 +661,8 @@ public class MainActivity extends Activity {
         totalCard.addView(text(total.lessons + " 节", 26, BLUE, true));
         totalCard.addView(text("上课学生 " + total.students + " 人，发生上课 " + total.days + " 天", 13, MUTED, false));
         root.addView(totalCard);
+
+        root.addView(statsCalendar());
 
         TextView listTitle = text("按日期查看", 15, INK, true);
         listTitle.setPadding(0, dp(14), 0, dp(4));
@@ -662,12 +677,96 @@ public class MainActivity extends Activity {
             LinearLayout dayCard = card();
             LinearLayout line = row();
             line.addView(text(day.date, 14, INK, true), weightParams());
-            line.addView(text(day.lessons + " 节", 13, BLUE, true));
+            line.addView(statusPill(day.lessons + " 节", BLUE, BLUE_SOFT));
             dayCard.addView(line);
             dayCard.addView(text(day.students + " 名学生，点击查看明细", 12, MUTED, false));
             dayCard.setOnClickListener(v -> showDayDetail(day.date));
             root.addView(dayCard);
         }
+    }
+
+    private View statsCalendar() {
+        if (statsCalendarMonth == null) {
+            statsCalendarMonth = monthStart(statsStart == null ? today() : statsStart);
+        }
+
+        LinearLayout calendar = card();
+        LinearLayout header = row();
+
+        Button prev = iconButton("<");
+        prev.setOnClickListener(v -> {
+            statsCalendarMonth = shiftMonth(statsCalendarMonth, -1);
+            showStats();
+        });
+        header.addView(prev);
+
+        LinearLayout titleBox = column();
+        TextView title = text(monthTitle(statsCalendarMonth), 15, INK, true);
+        title.setGravity(Gravity.CENTER);
+        TextView hint = text("点击有课日期查看学生", 11, MUTED, false);
+        hint.setGravity(Gravity.CENTER);
+        titleBox.addView(title);
+        titleBox.addView(hint);
+        header.addView(titleBox, weightParams());
+
+        Button next = iconButton(">");
+        next.setOnClickListener(v -> {
+            statsCalendarMonth = shiftMonth(statsCalendarMonth, 1);
+            showStats();
+        });
+        header.addView(next);
+        calendar.addView(header);
+
+        LinearLayout weekdays = row();
+        weekdays.setPadding(0, dp(8), 0, dp(2));
+        String[] labels = new String[]{"一", "二", "三", "四", "五", "六", "日"};
+        for (String label : labels) {
+            TextView day = text(label, 12, MUTED, true);
+            day.setGravity(Gravity.CENTER);
+            weekdays.addView(day, calendarCellParams());
+        }
+        calendar.addView(weekdays);
+
+        Calendar month = calendarFromDate(statsCalendarMonth);
+        month.set(Calendar.DAY_OF_MONTH, 1);
+        String start = dateFormat.format(month.getTime());
+        int firstOffset = mondayOffset(month);
+        int daysInMonth = month.getActualMaximum(Calendar.DAY_OF_MONTH);
+        Calendar end = (Calendar) month.clone();
+        end.set(Calendar.DAY_OF_MONTH, daysInMonth);
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (DaySummary summary : db.daySummaries(start, dateFormat.format(end.getTime()))) {
+            counts.put(summary.date, summary.lessons);
+        }
+
+        int dayNumber = 1;
+        int totalCells = firstOffset + daysInMonth;
+        int rows = (totalCells + 6) / 7;
+        for (int r = 0; r < rows; r++) {
+            LinearLayout week = row();
+            week.setGravity(Gravity.CENTER);
+            for (int c = 0; c < 7; c++) {
+                int cellIndex = r * 7 + c;
+                if (cellIndex < firstOffset || dayNumber > daysInMonth) {
+                    week.addView(calendarBlankCell(), calendarCellParams());
+                    continue;
+                }
+
+                Calendar date = (Calendar) month.clone();
+                date.set(Calendar.DAY_OF_MONTH, dayNumber);
+                String dateValue = dateFormat.format(date.getTime());
+                int count = counts.containsKey(dateValue) ? counts.get(dateValue) : 0;
+                TextView cell = calendarDayCell(dayNumber, count);
+                if (count > 0) {
+                    cell.setOnClickListener(v -> showDayDetail(dateValue));
+                }
+                week.addView(cell, calendarCellParams());
+                dayNumber++;
+            }
+            calendar.addView(week);
+        }
+        return calendar;
     }
 
     private Button rangeButton(String label, DateRange range, String statLabel) {
@@ -676,6 +775,7 @@ public class MainActivity extends Activity {
             statsStart = range.start;
             statsEnd = range.end;
             statsLabel = statLabel;
+            statsCalendarMonth = monthStart(range.start);
             showStats();
         });
         return btn;
@@ -734,6 +834,15 @@ public class MainActivity extends Activity {
         root.addView(list);
     }
 
+    private void confirmExportCsv() {
+        new AlertDialog.Builder(this)
+                .setTitle("导出 CSV 备份？")
+                .setMessage("将生成当前所有学生和上课明细的 CSV 文件。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("导出", (dialog, which) -> exportCsv())
+                .show();
+    }
+
     private void exportCsv() {
         try {
             String fileName = "课时统计-" + today() + ".csv";
@@ -778,7 +887,8 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         if ("detail".equals(screen) || "stats".equals(screen)) showHome();
         else if ("form".equals(screen) && currentStudent != null) showDetail(currentStudent.id);
-        else if ("form".equals(screen) || "day".equals(screen)) showHome();
+        else if ("day".equals(screen)) showStats();
+        else if ("form".equals(screen)) showHome();
         else super.onBackPressed();
     }
 
@@ -801,8 +911,46 @@ public class MainActivity extends Activity {
         return view;
     }
 
+    private View homeSummary(Stats summary) {
+        LinearLayout box = card();
+
+        LinearLayout top = row();
+        top.addView(statTile("学生", String.valueOf(summary.students), BLUE, BLUE_SOFT), weightParams());
+        top.addView(statTile("总课时", summary.totalLessons + " 节", INK, SURFACE), weightParams());
+        box.addView(top);
+
+        LinearLayout bottom = row();
+        bottom.addView(statTile("已上", summary.usedLessons + " 节", TEAL, TEAL_SOFT), weightParams());
+        bottom.addView(statTile("剩余", summary.remaining + " 节", summary.remaining <= 3 ? DANGER : BLUE,
+                summary.remaining <= 3 ? DANGER_SOFT : BLUE_SOFT), weightParams());
+        box.addView(bottom);
+
+        TextView month = text("本月已上 " + summary.monthLessons + " 节", 12, MUTED, false);
+        month.setGravity(Gravity.CENTER);
+        month.setPadding(0, dp(6), 0, 0);
+        box.addView(month);
+        return box;
+    }
+
+    private LinearLayout statTile(String label, String value, int valueColor, int fillColor) {
+        LinearLayout view = column();
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(8), dp(9), dp(8), dp(9));
+        view.setBackground(rounded(fillColor, cornerRadius(), 0, 0));
+        TextView labelView = text(label, 11, MUTED, false);
+        labelView.setGravity(Gravity.CENTER);
+        TextView valueView = text(value, 16, valueColor, true);
+        valueView.setGravity(Gravity.CENTER);
+        view.addView(labelView);
+        view.addView(valueView);
+        return view;
+    }
+
     private LinearLayout metric(String label, String value, int valueColor) {
         LinearLayout view = column();
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(6), dp(8), dp(6), dp(8));
+        view.setBackground(rounded(SURFACE, cornerRadius(), 0, 0));
         TextView labelView = text(label, 11, MUTED, false);
         labelView.setGravity(Gravity.CENTER);
         TextView valueView = text(value, 15, valueColor, true);
@@ -812,30 +960,38 @@ public class MainActivity extends Activity {
         return view;
     }
 
+    private TextView statusPill(String value, int color, int fill) {
+        TextView view = text(value, 12, color, true);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(9), dp(5), dp(9), dp(5));
+        view.setBackground(rounded(fill, cornerRadius(), 0, 0));
+        return view;
+    }
+
     private TextView calendarDayCell(int day, int lessons) {
         String value = lessons > 0 ? day + "\n" + lessons + "节" : String.valueOf(day);
-        TextView view = text(value, lessons > 0 ? 11 : 13, lessons > 0 ? BLUE : INK, lessons > 0);
+        TextView view = text(value, lessons > 0 ? 10 : 13, lessons > 0 ? BLUE : INK, lessons > 0);
         view.setGravity(Gravity.CENTER);
-        view.setMinHeight(dp(46));
+        view.setMinHeight(dp(50));
         view.setIncludeFontPadding(false);
         view.setPadding(dp(2), dp(4), dp(2), dp(4));
-        view.setBackground(rounded(lessons > 0 ? BLUE_SOFT : CARD, dp(10), lessons > 0 ? BLUE : LINE, 1));
+        view.setBackground(rounded(lessons > 0 ? BLUE_SOFT : CARD, cornerRadius(), lessons > 0 ? BLUE : LINE, 1));
         return view;
     }
 
     private TextView calendarBlankCell() {
         TextView view = text("", 12, MUTED, false);
-        view.setMinHeight(dp(46));
+        view.setMinHeight(dp(50));
         return view;
     }
 
     private LinearLayout card() {
         LinearLayout view = column();
-        view.setPadding(dp(14), dp(13), dp(14), dp(13));
-        view.setBackground(rounded(CARD, dp(16), LINE, 1));
-        view.setElevation(dp(2));
+        view.setPadding(dp(14), dp(14), dp(14), dp(14));
+        view.setBackground(rounded(CARD, cornerRadius(), LINE, 1));
+        view.setElevation(dp(1));
         LinearLayout.LayoutParams params = matchWrap();
-        params.setMargins(0, dp(8), 0, dp(8));
+        params.setMargins(0, dp(7), 0, dp(7));
         view.setLayoutParams(params);
         return view;
     }
@@ -843,19 +999,19 @@ public class MainActivity extends Activity {
     private LinearLayout listContainer() {
         LinearLayout view = column();
         view.setPadding(0, dp(2), 0, dp(2));
-        view.setBackground(rounded(CARD, dp(16), LINE, 1));
-        view.setElevation(dp(2));
+        view.setBackground(rounded(CARD, cornerRadius(), LINE, 1));
+        view.setElevation(dp(1));
         LinearLayout.LayoutParams params = matchWrap();
-        params.setMargins(0, dp(8), 0, dp(8));
+        params.setMargins(0, dp(7), 0, dp(7));
         view.setLayoutParams(params);
         return view;
     }
 
     private View compactStudentLessonRow(StudentLesson row) {
         LinearLayout line = row();
-        line.setPadding(dp(14), dp(10), dp(14), dp(10));
+        line.setPadding(dp(14), dp(11), dp(14), dp(11));
         line.addView(text(row.name, 14, INK, true), weightParams());
-        line.addView(text(row.lessons + " 节", 13, BLUE, true));
+        line.addView(statusPill(row.lessons + " 节", BLUE, BLUE_SOFT));
         return line;
     }
 
@@ -893,18 +1049,6 @@ public class MainActivity extends Activity {
         return view;
     }
 
-    private TextView chip(String value) {
-        TextView view = text(value, 12, BLUE, true);
-        view.setPadding(dp(10), dp(5), dp(10), dp(5));
-        view.setBackground(rounded(BLUE_SOFT, dp(16), 0, 0));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, 0, dp(6), 0);
-        view.setLayoutParams(params);
-        return view;
-    }
-
     private EditText input(String hint) {
         EditText view = new EditText(this);
         view.setHint(hint);
@@ -912,8 +1056,9 @@ public class MainActivity extends Activity {
         view.setHintTextColor(MUTED);
         view.setTextSize(14);
         view.setSingleLine(false);
-        view.setPadding(dp(12), dp(9), dp(12), dp(9));
-        view.setBackground(rounded(CARD, dp(12), LINE, 1));
+        view.setMinHeight(dp(44));
+        view.setPadding(dp(12), dp(10), dp(12), dp(10));
+        view.setBackground(rounded(CARD, cornerRadius(), LINE, 1));
         return view;
     }
 
@@ -930,11 +1075,13 @@ public class MainActivity extends Activity {
         view.setTextColor(Color.WHITE);
         view.setTextSize(13);
         view.setAllCaps(false);
-        view.setMinHeight(dp(38));
+        view.setSingleLine(false);
+        view.setGravity(Gravity.CENTER);
+        view.setMinHeight(dp(42));
         view.setMinWidth(0);
         view.setMinimumWidth(0);
-        view.setPadding(dp(12), 0, dp(12), 0);
-        view.setBackground(rounded(BLUE, dp(19), 0, 0));
+        view.setPadding(dp(10), 0, dp(10), 0);
+        view.setBackground(rounded(BLUE, cornerRadius(), 0, 0));
         return view;
     }
 
@@ -944,25 +1091,27 @@ public class MainActivity extends Activity {
         view.setTextColor(BLUE);
         view.setTextSize(13);
         view.setAllCaps(false);
-        view.setMinHeight(dp(38));
+        view.setSingleLine(false);
+        view.setGravity(Gravity.CENTER);
+        view.setMinHeight(dp(42));
         view.setMinWidth(0);
         view.setMinimumWidth(0);
-        view.setPadding(dp(12), 0, dp(12), 0);
-        view.setBackground(rounded(BLUE_SOFT, dp(19), 0, 0));
+        view.setPadding(dp(10), 0, dp(10), 0);
+        view.setBackground(rounded(BLUE_SOFT, cornerRadius(), 0, 0));
         return view;
     }
 
     private Button dateSelectButton(String label) {
         Button view = secondaryButton(label);
         view.setGravity(Gravity.CENTER);
-        view.setBackground(rounded(CARD, dp(14), LINE, 1));
+        view.setBackground(rounded(CARD, cornerRadius(), LINE, 1));
         return view;
     }
 
     private Button dangerButton(String label) {
         Button view = secondaryButton(label);
         view.setTextColor(DANGER);
-        view.setBackground(rounded(DANGER_SOFT, dp(19), 0, 0));
+        view.setBackground(rounded(DANGER_SOFT, cornerRadius(), 0, 0));
         return view;
     }
 
@@ -972,11 +1121,13 @@ public class MainActivity extends Activity {
         view.setTextColor(Color.WHITE);
         view.setTextSize(13);
         view.setAllCaps(false);
-        view.setMinHeight(dp(38));
+        view.setSingleLine(false);
+        view.setGravity(Gravity.CENTER);
+        view.setMinHeight(dp(42));
         view.setMinWidth(0);
         view.setMinimumWidth(0);
-        view.setPadding(dp(12), 0, dp(12), 0);
-        view.setBackground(rounded(DISABLED, dp(19), 0, 0));
+        view.setPadding(dp(10), 0, dp(10), 0);
+        view.setBackground(rounded(DISABLED, cornerRadius(), 0, 0));
         return view;
     }
 
@@ -1002,13 +1153,17 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams calendarCellParams() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(52), 1);
         params.setMargins(dp(2), dp(2), dp(2), dp(2));
         return params;
     }
 
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private int cornerRadius() {
+        return dp(CORNER_RADIUS_DP);
     }
 
     private GradientDrawable rounded(int fill, int radius, int strokeColor, int strokeWidthDp) {
